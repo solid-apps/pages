@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>pages</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="manifest" href="manifest.json">
+<style>
+  :root{ --slate:#2a3140; --accent:#0082c9; --accent-d:#0070b0; --line:#e2e8f0; --mut:#64748b; }
+  *{box-sizing:border-box}
+  body{margin:0;font:15px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#334155;background:#f8fafc}
+  .top{display:flex;align-items:center;gap:.6rem;background:var(--slate);color:#fff;padding:.7rem 1rem}
+  .top b{font-weight:800;letter-spacing:.04em}
+  .top a{margin-left:auto;color:#aeb6c2;text-decoration:none;font-size:.85rem}
+  .wrap{max-width:980px;margin:0 auto;padding:1rem}
+  .bar{display:flex;align-items:center;gap:.6rem;margin-bottom:1rem;flex-wrap:wrap}
+  .bar h2{margin:0;font-size:1.2rem;flex:1}
+  button{background:var(--accent);color:#fff;border:0;border-radius:7px;padding:.5rem 1rem;font:inherit;font-weight:600;cursor:pointer}
+  button.ghost{background:#fff;color:#334155;border:1px solid var(--line);font-weight:500}
+  button.on{background:var(--accent-d)}
+  input{font:inherit;border:1px solid var(--line);border-radius:7px;padding:.5rem .6rem}
+  a.row{display:flex;gap:.5rem;align-items:center;background:#fff;border:1px solid var(--line);border-radius:9px;padding:.55rem .8rem;text-decoration:none;color:#334155;margin-bottom:.4rem}
+  a.row:hover{border-color:var(--accent)}
+  .card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:1rem 1.1rem}
+  .muted{color:var(--mut)}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+  .seg button{background:#fff;color:#334155;font-weight:500;border:0;border-right:1px solid var(--line)}
+  .seg button:last-child{border-right:0}
+  .seg button.on{background:var(--accent);color:#fff}
+  .editor{display:grid;gap:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff}
+  .editor.split{grid-template-columns:1fr 1fr}
+  textarea{width:100%;min-height:58vh;border:0;padding:1rem;font:14px/1.6 ui-monospace,Menlo,monospace;resize:vertical;outline:none}
+  .preview{padding:1rem 1.2rem;min-height:58vh;overflow:auto;border-left:1px solid var(--line)}
+  .editor:not(.split) .preview{border-left:0}
+  .preview h1{font-size:1.6rem}.preview h2{font-size:1.25rem;border-bottom:1px solid var(--line);padding-bottom:.2rem}
+  .preview a{color:var(--accent)} .preview pre{background:#f1f5f9;padding:.7rem;border-radius:8px;overflow:auto}
+  .preview img{max-width:100%} .preview code{background:#f1f5f9;padding:1px 5px;border-radius:4px}
+  .save{font-size:.8rem;color:var(--mut)}
+  .url{font:11px ui-monospace,Menlo,monospace;color:var(--accent);word-break:break-all}
+  .toast{position:fixed;left:50%;bottom:1.2rem;transform:translateX(-50%);background:var(--slate);color:#fff;padding:.5rem 1rem;border-radius:9px;font-size:.88rem;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="top"><b>pages</b><a href="../../../">&uarr; root</a></div>
+<div class="wrap"><div id="app"></div></div>
+<div class="toast" id="toast"></div>
+
+<script src="https://unpkg.com/xlogin"></script>
+<script src="https://unpkg.com/marked@4.2.12/marked.min.js"></script>
+<script>
+// pages - publish markdown pages on your Solid pod. Translated from nostr.app's
+// "Pages" (nosdav + nostr pubkey) to the pod paradigm: each page is markdown at
+// <pod>/public/pages/<slug>, public-readable (a live URL), saved via xlogin.
+// Edit/Preview/Split + auto-save. Single file, marked for rendering.
+"use strict";
+var PIM = "http://www.w3.org/ns/pim/space#";
+var app = document.getElementById("app"), toastEl = document.getElementById("toast");
+var PAGESDIR = null, STORAGE = null;
+var view = "list";        // 'list' | 'page'
+var slug = null, content = "", mode = "split", saveState = "";
+
+function authFetch(u,o){ return ((window.xlogin && window.xlogin.authFetch) || fetch)(u,o); }
+function me(){ return window.xlogin && window.xlogin.id; }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
+function idOf(v){ return typeof v==="string"?v:(v&&v["@id"])||null; }
+function valOf(v){ if(v==null)return null;if(typeof v!=="object")return v;if(Array.isArray(v))return v.length?valOf(v[0]):null;return v["@value"]||v["@id"]||null; }
+function subjects(d){ return Array.isArray(d["@graph"])?d["@graph"]:(Array.isArray(d)?d:[d]); }
+function slugify(s){ return String(s||"").toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,80); }
+function deslug(s){ return s.replace(/-/g," ").replace(/\b\w/g,function(c){return c.toUpperCase();}); }
+function md(s){ try{ return marked.parse(s||""); }catch(e){ return "<pre>"+esc(s)+"</pre>"; } }
+
+function getLd(u){ return authFetch(u,{headers:{Accept:"application/ld+json"}}).then(function(r){return r.ok?r.json().catch(function(){return null;}):null;}).catch(function(){return null;}); }
+function getText(u){ return authFetch(u).then(function(r){return r.ok?r.text():(r.status===404?"":null);}).catch(function(){return null;}); }
+function ensureContainer(u){ return authFetch(u,{method:"HEAD"}).then(function(r){if(r.ok)return;return authFetch(u,{method:"PUT",headers:{"Content-Type":"text/turtle","Link":'<http://www.w3.org/ns/ldp#BasicContainer>; rel="type"'},body:""});}).catch(function(){}); }
+function discoverStorage(webid){
+  return getLd(webid.replace(/#.*$/,"")).then(function(doc){
+    if(doc){var s=subjects(doc)[0]||{};var id=valOf(s["pim:storage"]||s[PIM+"storage"]||s["storage"]);if(id){try{return new URL(id,webid).href.replace(/\/?$/,"/");}catch(e){}}}
+    return new URL(webid).origin+"/";
+  }).catch(function(){try{return new URL(webid).origin+"/";}catch(e){return null;}});
+}
+function listContainer(u){
+  return getLd(u).then(function(doc){
+    if(!doc)return [];
+    var s=subjects(doc)[0]||{};var c=s["ldp:contains"]||s["http://www.w3.org/ns/ldp#contains"]||s["contains"]||[];
+    if(!Array.isArray(c))c=[c];
+    return c.map(function(x){return idOf(x)||x;}).filter(function(x){return typeof x==="string"&&!x.endsWith("/");})
+      .map(function(x){return decodeURIComponent(x.split("/").pop());}).filter(function(n){return n && n.charAt(0)!==".";});
+  });
+}
+function pageUrl(s){ return PAGESDIR + encodeURIComponent(s); }
+
+function toast(t){ toastEl.textContent=t; toastEl.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(function(){toastEl.classList.remove("show");},1400); }
+
+// --- actions ---
+function openList(){ view="list"; slug=null; render(); }
+function openPage(s){ view="page"; slug=s; content=""; saveState="loading"; render();
+  getText(pageUrl(s)).then(function(t){ content=(t==null?"":t); saveState=""; render(); });
+}
+var saveTimer=null;
+function scheduleSave(){ saveState="saving…"; clearTimeout(saveTimer); saveTimer=setTimeout(doSave,800); var el=document.getElementById("savestate"); if(el)el.textContent=saveState; }
+function doSave(){
+  if(!slug)return;
+  ensureContainer(PAGESDIR).then(function(){
+    return authFetch(pageUrl(slug),{method:"PUT",headers:{"Content-Type":"text/markdown"},body:content});
+  }).then(function(r){ saveState=r&&r.ok?"saved":"save failed"; var el=document.getElementById("savestate"); if(el)el.textContent=saveState; })
+   .catch(function(){ saveState="save failed"; var el=document.getElementById("savestate"); if(el)el.textContent=saveState; });
+}
+
+// --- render ---
+function render(){
+  if(!me()){ app.innerHTML='<div class="card"><h2>pages</h2><p>Publish markdown pages on your pod — each saved at <code>/public/pages/&lt;name&gt;</code>, a live URL anyone can read.</p><p class="muted">Sign in (login pill, bottom-right) to start.</p></div>'; return; }
+  if(view==="page") return renderPage();
+  // list
+  app.innerHTML='<div class="bar"><h2>Pages</h2><button id="new">+ New page</button></div><div id="list" class="muted">Loading…</div>';
+  document.getElementById("new").onclick=function(){ var n=prompt("Page name:"); if(n){ openPage(slugify(n)); } };
+  listContainer(PAGESDIR).then(function(slugs){
+    var el=document.getElementById("list"); el.className="";
+    el.innerHTML = slugs.length ? slugs.sort().map(function(s){return '<a class="row" href="#" data-s="'+esc(s)+'"><span>'+esc(deslug(s))+'</span></a>';}).join("")
+      : '<div class="card muted">No pages yet. Create one — it publishes to <code>/public/pages/</code>.</div>';
+    el.querySelectorAll("[data-s]").forEach(function(a){ a.onclick=function(e){e.preventDefault();openPage(a.dataset.s);}; });
+  }).catch(function(e){ document.getElementById("list").innerHTML='<div class="card muted">Could not list: '+esc(e.message)+'</div>'; });
+}
+function renderPage(){
+  var abs = new URL(pageUrl(slug), location.href).href;
+  app.innerHTML =
+    '<div class="bar"><button class="ghost" id="back">← Pages</button><h2>'+esc(deslug(slug))+'</h2>'+
+    '<span class="save" id="savestate">'+esc(saveState)+'</span>'+
+    '<div class="seg"><button data-m="edit" class="'+(mode==="edit"?"on":"")+'">Edit</button><button data-m="split" class="'+(mode==="split"?"on":"")+'">Split</button><button data-m="preview" class="'+(mode==="preview"?"on":"")+'">Preview</button></div></div>'+
+    '<div class="editor '+(mode==="split"?"split":"")+'">'+
+      (mode!=="preview"?'<textarea id="ta" placeholder="# '+esc(deslug(slug))+'\n\nWrite markdown…">'+esc(content)+'</textarea>':'')+
+      (mode!=="edit"?'<div class="preview" id="pv">'+md(content)+'</div>':'')+
+    '</div>'+
+    '<div class="url">live at: <a href="'+esc(abs)+'" target="_blank" rel="noopener">'+esc(abs)+'</a></div>';
+  document.getElementById("back").onclick=openList;
+  app.querySelectorAll("[data-m]").forEach(function(b){ b.onclick=function(){ mode=b.dataset.m; render(); }; });
+  var ta=document.getElementById("ta");
+  if(ta) ta.oninput=function(){ content=ta.value; var pv=document.getElementById("pv"); if(pv)pv.innerHTML=md(content); scheduleSave(); };
+}
+
+// --- init ---
+function start(){
+  if(!me()){ render(); return; }
+  discoverStorage(me()).then(function(s){ STORAGE=s; PAGESDIR=s+"public/pages/"; render(); }).catch(function(){ render(); });
+}
+document.addEventListener("xlogin", start);
+document.addEventListener("xlogout", function(){ STORAGE=null;PAGESDIR=null;view="list"; render(); });
+start();
+</script>
+</body>
+</html>

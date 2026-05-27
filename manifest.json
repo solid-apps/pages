@@ -1,0 +1,14 @@
+{
+  "name": "pages",
+  "short_name": "pages",
+  "description": "Publish markdown pages on your Solid pod — each saved at /public/pages/<name> as a live URL. Edit/preview, auto-save.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#2a3140",
+  "theme_color": "#2a3140",
+  "handles": [],
+  "icons": [
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
