@@ -69,7 +69,11 @@ function valOf(v){ if(v==null)return null;if(typeof v!=="object")return v;if(Arr
 function subjects(d){ return Array.isArray(d["@graph"])?d["@graph"]:(Array.isArray(d)?d:[d]); }
 function slugify(s){ return String(s||"").toLowerCase().trim().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,80); }
 function deslug(s){ return s.replace(/-/g," ").replace(/\b\w/g,function(c){return c.toUpperCase();}); }
-function md(s){ try{ return marked.parse(s||""); }catch(e){ return "<pre>"+esc(s)+"</pre>"; } }
+function md(s){
+  // [[Page Name]] / [[Page Name|label]] -> internal wiki link (click to open/create)
+  s = String(s||"").replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, function(_,p,l){ return "["+(l||p).trim()+"](#p/"+slugify(p.trim())+")"; });
+  try{ return marked.parse(s); }catch(e){ return "<pre>"+esc(s)+"</pre>"; }
+}
 
 function getLd(u){ return authFetch(u,{headers:{Accept:"application/ld+json"}}).then(function(r){return r.ok?r.json().catch(function(){return null;}):null;}).catch(function(){return null;}); }
 function getText(u){ return authFetch(u).then(function(r){return r.ok?r.text():(r.status===404?"":null);}).catch(function(){return null;}); }
@@ -89,7 +93,7 @@ function listContainer(u){
       .map(function(x){return decodeURIComponent(x.split("/").pop());}).filter(function(n){return n && n.charAt(0)!==".";});
   });
 }
-function pageUrl(s){ return PAGESDIR + encodeURIComponent(s); }
+function pageUrl(s){ return PAGESDIR + encodeURIComponent(s) + ".md"; }   // pages saved as <slug>.md
 
 function toast(t){ toastEl.textContent=t; toastEl.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(function(){toastEl.classList.remove("show");},1400); }
 
@@ -115,7 +119,8 @@ function render(){
   // list
   app.innerHTML='<div class="bar"><h2>Pages</h2><button id="new">+ New page</button></div><div id="list" class="muted">Loading…</div>';
   document.getElementById("new").onclick=function(){ var n=prompt("Page name:"); if(n){ openPage(slugify(n)); } };
-  listContainer(PAGESDIR).then(function(slugs){
+  listContainer(PAGESDIR).then(function(names){
+    var slugs = names.filter(function(n){return /\.md$/i.test(n);}).map(function(n){return n.replace(/\.md$/i,"");});
     var el=document.getElementById("list"); el.className="";
     el.innerHTML = slugs.length ? slugs.sort().map(function(s){return '<a class="row" href="#" data-s="'+esc(s)+'"><span>'+esc(deslug(s))+'</span></a>';}).join("")
       : '<div class="card muted">No pages yet. Create one — it publishes to <code>/public/pages/</code>.</div>';
@@ -137,6 +142,8 @@ function renderPage(){
   app.querySelectorAll("[data-m]").forEach(function(b){ b.onclick=function(){ mode=b.dataset.m; render(); }; });
   var ta=document.getElementById("ta");
   if(ta) ta.oninput=function(){ content=ta.value; var pv=document.getElementById("pv"); if(pv)pv.innerHTML=md(content); scheduleSave(); };
+  var pv=document.getElementById("pv");   // [[wiki link]] clicks open/create the target page
+  if(pv) pv.addEventListener("click", function(e){ var a=e.target.closest&&e.target.closest('a[href^="#p/"]'); if(a){ e.preventDefault(); openPage(a.getAttribute("href").slice(3)); } });
 }
 
 // --- init ---

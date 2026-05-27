@@ -15,12 +15,14 @@ session.
 - **List / open / create** pages (the navigator lists `/public/pages/`).
 - **Edit / Split / Preview** a page — markdown in a textarea, rendered live with
   `marked`. **Auto-saves** (debounced) to the pod as `text/markdown`.
-- Each page shows its **live URL** (`<pod>/public/pages/<slug>`) — share it, it's
-  public-readable.
+- **`[[wiki links]]`** — `[[Page Name]]` (or `[[Page Name|label]]`) renders as a
+  link; click it to open that page, or create it if it doesn't exist yet.
+- Each page shows its **live URL** (`<pod>/public/pages/<slug>.md`) — share it,
+  it's public-readable.
 
 ## Data model
 
-Dead simple: a page is a **raw markdown file** at `<pod>/public/pages/<slug>`
+Dead simple: a page is a **raw markdown file** at `<pod>/public/pages/<slug>.md`
 (`Content-Type: text/markdown`). No JSON-LD wrapper — the file *is* the page.
 (For structured/linked pages with fields, see `datawiki`; for private prose
 notes, `notes`.)
